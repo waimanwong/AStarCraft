@@ -143,6 +143,11 @@ struct RobotState
         this.y = y;
         this.direction = direction;
     }
+
+    public override string ToString()
+    {
+        return $"({x.ToString()},{y.ToString()}) {direction.ToString()}";
+    }
 }
 
 class Robot
@@ -493,16 +498,22 @@ static class SolutionFinder2
                         if(visitedStates.Contains(tryNextState) == false)
                         {
                             solution.Add(new Arrow(robot.x, robot.y, tryDirection));
-                            
+
+                            robot.Move();
+                            visitedStates.Add(robot.DumpState());
 
                             isAlive = true;
+                            break;
                         }
                     }
                 }
             }
-
-            robot.Move();
-            visitedStates.Add(robot.DumpState());
+            else
+            {
+                robot.Move();
+                visitedStates.Add(robot.DumpState());
+            }
+           
         }
         return solution;
     }
