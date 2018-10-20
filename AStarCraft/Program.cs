@@ -277,10 +277,25 @@ static class SolutionFinder
     public static Solution FindBestSolution(Map map, Robot[] robots)
     {
         var platformCells = map.GetPlatformCells();
+
+        var solutionClockWise = GetSolution(map, platformCells, clockWise: true);
+        var newMapClockWise = map.Apply(solutionClockWise.Arrows);
+        int scoreClockWise = ScoreCalculator.ComputeScore(newMapClockWise, robots);
+        Player.Debug($"Expected score clockwise {scoreClockWise.ToString()}");
+
+        var solutionAntiClockWise = GetSolution(map, platformCells, clockWise: false);
+        var newMapAntiClockWise = map.Apply(solutionAntiClockWise.Arrows);
+        int scoreAntiClockWise = ScoreCalculator.ComputeScore(newMapAntiClockWise, robots);
+        Player.Debug($"Expected score anti clock wise {scoreAntiClockWise.ToString()}");
+
+        return scoreAntiClockWise < scoreClockWise ? solutionClockWise : solutionAntiClockWise;
+    }
+
+    private static Solution GetSolution(Map map, Position[] platformCells, bool clockWise)
+    {
         var solution = new Solution();
-        
-        
-        foreach(var platformCell in platformCells)
+
+        foreach (var platformCell in platformCells)
         {
             var neighbors = platformCell.GetNeighbors();
             var neighborCells = neighbors.Select(neighborPosition => map.GetCell(neighborPosition)).ToArray();
@@ -291,17 +306,12 @@ static class SolutionFinder
                 //Dead ends
                 HandleDeadEnds(ref solution, map, neighbors, platformCell);
             }
-            else if(neighborEmptyCellCount == 2)
+            else if (neighborEmptyCellCount == 2)
             {
                 //Corners
-                HandleCorner(ref solution, map, neighbors, platformCell, clockWise:true);
+                HandleCorner(ref solution, map, neighbors, platformCell, clockWise);
             }
         }
-
-        var newMap = map.Apply(solution.Arrows);
-        int score = ScoreCalculator.ComputeScore(newMap, robots);
-        Player.Debug($"Expected score {score.ToString()}");
-
         return solution;
     }
 
@@ -367,8 +377,21 @@ static class SolutionFinder
             solution.Add(new Arrow(platformCell, Map.RightArrow));
         }
     }
-
 }
+
+
+//static class SolutionFinder2
+//{
+//    public static Solution FindBestSolution(Map map, Robot[] robots)
+//    {
+        
+//        var newMap = map.Apply(solution.Arrows);
+//        int score = ScoreCalculator.ComputeScore(newMap, robots);
+//        Player.Debug($"Expected score {score.ToString()}");
+
+//        return solution;
+//    }
+//}
 
 class Player
 {
