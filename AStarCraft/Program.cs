@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 
 struct Position
@@ -59,6 +58,7 @@ class Map
     public Map(string[] rows)
     {
         this.cells = rows.Select(row => row.ToCharArray()).ToArray();
+        this.ComputeInternalState();
     }
     
     public char GetCell(Position pos)
@@ -71,26 +71,27 @@ class Map
         return cells[y][x];
     }
 
-    static List<Position> _platformCells = new List<Position>(19 * 10);
+    public List<Position> VoidCells = new List<Position>(Map.Width * Map.Height);
+    public List<Position> PlatformCells = new List<Position>(Map.Width * Map.Height);
 
-    public Position[] GetPlatformCells()
+    private void ComputeInternalState()
     {
-        _platformCells.Clear();
-
         for (int y = 0; y < Map.Height; y++)
         {
             for (int x = 0; x < Map.Width; x++)
             {
                 if (cells[y][x] == '.')
                 {
-                    _platformCells.Add(new Position(x, y));
+                    PlatformCells.Add(new Position(x, y));
+                }
+                if (cells[y][x] == Map.Void)
+                {
+                    VoidCells.Add(new Position(x, y));
                 }
             }
         }
-        return _platformCells.ToArray();
     }
-
-
+    
     public Map Apply(IEnumerable<Arrow> arrows)
     {
         var newMap = (Map)this.MemberwiseClone();
@@ -157,8 +158,7 @@ class Robot
     {
         return new Robot(x, y, direction);
     }
-
-
+    
     public void Move()
     {
         switch (direction)
@@ -178,6 +178,28 @@ class Robot
         }
     }
 
+    private Position GetNextPosition()
+    {
+        switch (direction)
+        {
+            case 'U':
+                return new Position(x, y == 0 ? Map.Height - 1 : y - 1);
+            case 'R':
+                return new Position(x == Map.Width - 1 ? 0 : x + 1, y);
+            case 'D':
+                return new Position(x, y == Map.Height - 1 ? y = 0 : y + 1);
+            case 'L':
+                return new Position(x == 0 ? Map.Width - 1 : x - 1, y);
+        }
+        throw new NotSupportedException();
+    }
+
+    public RobotState GetNextState()
+    {
+        var nextPosition = GetNextPosition();
+        return new RobotState(nextPosition.x, nextPosition.y, this.direction);
+    }
+
     public RobotState DumpState()
     {
         return new RobotState(this.x, this.y, this.direction);
@@ -188,23 +210,39 @@ static class ScoreCalculator
 {
     public static int ComputeScore(Map map, Robot[] robots )
     {
+        HashSet<RobotState> visitedStates = InitializeVisitedStates(map);
         int score = 0;
 
         foreach(var robot in robots)
         {
-            score += ComputeScore(map, robot);
+            score += ComputeScore(map, robot, visitedStates);
         }
         return score;
     }
 
-    private static int ComputeScore(Map map, Robot robot)
+    private static HashSet<RobotState> InitializeVisitedStates(Map map)
+    {
+        var voidCells = map.VoidCells;
+        HashSet<RobotState> visitedStates = new HashSet<RobotState>(Map.Height * Map.Width * 4);
+
+        foreach (var voidCell in voidCells)
+        {
+            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.DownArrow));
+            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.UpArrow));
+            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.LeftArrow));
+            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.RightArrow));
+        }
+        return visitedStates;
+    }
+
+    private static int ComputeScore(Map map, Robot robot, HashSet<RobotState> initializedVisitedStates)
     {
         ChangeDirectionIfLocatedOnAnArrow(map, robot);
 
         bool robotIsAlive = true;
         int score = 0;
-        HashSet<RobotState> visitedStates = new HashSet<RobotState>(1000);
-
+        HashSet<RobotState> visitedStates = initializedVisitedStates.ToHashSet();
+        
         visitedStates.Add(robot.DumpState());
 
         while (robotIsAlive)
@@ -220,8 +258,7 @@ static class ScoreCalculator
 
             //Automaton2000 robots stop functioning if they're located on a void cell or if they've entered a state(position, direction) they've been in before. (Automaton2000 robots don't share their state history)
             var robotState = robot.DumpState();
-            var cellContent = map.GetCell(robot.x, robot.y);
-            if (cellContent == Map.Void || visitedStates.Contains(robotState))
+            if (visitedStates.Contains(robotState))
             {
                 robotIsAlive = false;
             }
@@ -276,7 +313,7 @@ static class SolutionFinder
     
     public static Solution FindBestSolution(Map map, Robot[] robots)
     {
-        var platformCells = map.GetPlatformCells();
+        var platformCells = map.PlatformCells.ToArray();
 
         var solutionClockWise = GetSolution(map, platformCells, clockWise: true);
         var newMapClockWise = map.Apply(solutionClockWise.Arrows);
@@ -384,12 +421,92 @@ static class SolutionFinder
 //{
 //    public static Solution FindBestSolution(Map map, Robot[] robots)
 //    {
+//        var voidCells = map.VoidCells;
+//        HashSet<RobotState> visitedStates = new HashSet<RobotState>(Map.Height * Map.Width * 4);
         
-//        var newMap = map.Apply(solution.Arrows);
-//        int score = ScoreCalculator.ComputeScore(newMap, robots);
-//        Player.Debug($"Expected score {score.ToString()}");
+//        foreach(var voidCell in voidCells)
+//        {
+//            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.DownArrow));
+//            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.UpArrow));
+//            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.LeftArrow));
+//            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.RightArrow));
+//        }
+//    }
 
-//        return solution;
+//    public static Solution FindBestSolutionForRobot(Map map, Robot robot)
+//    {
+//        var directions = "URDL";
+//        Solution solution = new Solution();
+
+//        HashSet<RobotState> visitedStates = new HashSet<RobotState>(1000);
+//        while (true)
+//        {
+//            var nextRobotState = robot.GetNextState();
+//            var nextCellContent = map.GetCell(nextRobotState.x, nextRobotState.y);
+
+//            if (nextCellContent == Map.Void || visitedStates.Contains(nextRobotState))
+//            {
+//                //Is there other alternatives
+//                foreach(var tryDirection in directions)
+//                {
+//                    if(robot.direction != tryDirection)
+//                    {
+
+//                    }
+//                }
+
+//            }
+//        }
+
+
+
+//        ChangeDirectionIfLocatedOnAnArrow(map, robot);
+//        HashSet<RobotState> visitedStates = new HashSet<RobotState>(1000);
+
+//        visitedStates.Add(robot.DumpState());
+
+//        while (robotIsAlive)
+//        {
+//            //Score is incremented by the number of robots in function.
+//            score++;
+
+//            //Automaton2000 robots move by 1 cell in the direction they're facing.
+//            robot.Move();
+
+//            //Automaton2000 robots change their direction if they're located on an arrow.
+//            ChangeDirectionIfLocatedOnAnArrow(map, robot);
+
+//            //Automaton2000 robots stop functioning if they're located on a void cell or if they've entered a state(position, direction) they've been in before. (Automaton2000 robots don't share their state history)
+//            var robotState = robot.DumpState();
+//            var cellContent = map.GetCell(robot.x, robot.y);
+//            if (cellContent == Map.Void || visitedStates.Contains(robotState))
+//            {
+//                robotIsAlive = false;
+//            }
+//            else
+//            {
+//                visitedStates.Add(robotState);
+//            }
+
+//        }
+//    }
+    
+//    private static void ChangeDirectionIfLocatedOnAnArrow(Map map, Robot robot)
+//    {
+//        //Automaton2000 robots change their direction if they're located on an arrow.
+//        var cellContent = map.GetCell(robot.x, robot.y);
+//        switch (cellContent)
+//        {
+//            case 'U':
+//            case 'R':
+//            case 'D':
+//            case 'L':
+//                robot.direction = cellContent;
+//                break;
+//            default:
+//                //Do nothing
+//                break;
+//        }
 //    }
 //}
 
@@ -426,8 +543,7 @@ class Player
         }
         
         var bestSolution = SolutionFinder.FindBestSolution(map, robots);
-
-
+        
         // Write an action using Console.WriteLine()
         // To debug: Console.Error.WriteLine("Debug messages...");
         var output = bestSolution.ToString();
