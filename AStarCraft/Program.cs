@@ -65,7 +65,7 @@ class Map
     {
         return GetCell(pos.x, pos.y);
     }
-
+    
     public char GetCell(int x, int y)
     {
         return cells[y][x];
@@ -116,12 +116,16 @@ struct Arrow
 {
     public int x, y;
     public char direction;
-    public Arrow(Position p, char direction)
+    public Arrow(int x, int y, char direction)
     {
-        this.x = p.x;
-        this.y = p.y;
+        this.x = x;
+        this.y = y;
         this.direction = direction;
     }
+    public Arrow(Position p, char direction) : this(p.x, p.y, direction)
+    {  
+    }
+
     public override string ToString()
     {
         return $"{x.ToString()} {y.ToString()} {direction}";
@@ -293,7 +297,7 @@ static class ScoreCalculator
 
 class Solution
 {
-    private List<Arrow> _arrowsToPlace = new List<Arrow>();
+    private HashSet<Arrow> _arrowsToPlace = new HashSet<Arrow>();
 
     public Arrow[] Arrows => _arrowsToPlace.ToArray();
     
@@ -305,6 +309,14 @@ class Solution
     public override string ToString()
     {
         return string.Join(" ", this._arrowsToPlace.Select(arrow => arrow.ToString()).ToArray());
+    }
+
+    internal void Combine(Solution otherSolution)
+    {
+        foreach(var arrow in otherSolution._arrowsToPlace)
+        {
+            _arrowsToPlace.Add(arrow);
+        }
     }
 }
 
@@ -417,98 +429,102 @@ static class SolutionFinder
 }
 
 
-//static class SolutionFinder2
-//{
-//    public static Solution FindBestSolution(Map map, Robot[] robots)
-//    {
-//        var voidCells = map.VoidCells;
-//        HashSet<RobotState> visitedStates = new HashSet<RobotState>(Map.Height * Map.Width * 4);
+static class SolutionFinder2
+{
+    public static Solution FindBestSolution(Map map, Robot[] robots)
+    {
+        HashSet<RobotState> visitedStates = InitializeVisitedStates(map);
+        var overallSolution = new Solution();
+
+        foreach (var robot in robots)
+        {
+            var bestSolutionForRobot = FindBestSolutionForRobot(map, robot, visitedStates);
+
+            overallSolution.Combine(bestSolutionForRobot);
+        }
+
+        return overallSolution;
+
+    }
+
+    private static HashSet<RobotState> InitializeVisitedStates(Map map)
+    {
+        HashSet<RobotState> visitedStates = new HashSet<RobotState>(Map.Height * Map.Width * 4);
+
+        var voidCells = map.VoidCells;
+        foreach (var voidCell in voidCells)
+        {
+            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.DownArrow));
+            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.UpArrow));
+            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.LeftArrow));
+            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.RightArrow));
+        }
+
+        return visitedStates;
+    }
+
+
+    public static Solution FindBestSolutionForRobot(Map map, Robot robot, HashSet<RobotState> initialisedVisitedStates)
+    {
+        var clockWiseDirections = "URDL"; //clock wise
         
-//        foreach(var voidCell in voidCells)
-//        {
-//            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.DownArrow));
-//            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.UpArrow));
-//            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.LeftArrow));
-//            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.RightArrow));
-//        }
-//    }
+        Solution solution = new Solution();
 
-//    public static Solution FindBestSolutionForRobot(Map map, Robot robot)
-//    {
-//        var directions = "URDL";
-//        Solution solution = new Solution();
+        HashSet<RobotState> visitedStates = initialisedVisitedStates.ToHashSet();
 
-//        HashSet<RobotState> visitedStates = new HashSet<RobotState>(1000);
-//        while (true)
-//        {
-//            var nextRobotState = robot.GetNextState();
-//            var nextCellContent = map.GetCell(nextRobotState.x, nextRobotState.y);
+        bool isAlive = true;
 
-//            if (nextCellContent == Map.Void || visitedStates.Contains(nextRobotState))
-//            {
-//                //Is there other alternatives
-//                foreach(var tryDirection in directions)
-//                {
-//                    if(robot.direction != tryDirection)
-//                    {
+        while (isAlive)
+        {
+            var nextRobotState = robot.GetNextState();
+            
+            if (visitedStates.Contains(nextRobotState))
+            {
+                isAlive = false;
 
-//                    }
-//                }
+                //Is there other alternatives
+                foreach (var tryDirection in clockWiseDirections)
+                {
+                    if (robot.direction != tryDirection)
+                    {
+                        robot.direction = tryDirection;
+                        var tryNextState = robot.GetNextState();
 
-//            }
-//        }
+                        if(visitedStates.Contains(tryNextState) == false)
+                        {
+                            solution.Add(new Arrow(robot.x, robot.y, tryDirection));
+                            
 
+                            isAlive = true;
+                        }
+                    }
+                }
+            }
 
+            robot.Move();
+            visitedStates.Add(robot.DumpState());
+        }
+        return solution;
+    }
 
-//        ChangeDirectionIfLocatedOnAnArrow(map, robot);
-//        HashSet<RobotState> visitedStates = new HashSet<RobotState>(1000);
-
-//        visitedStates.Add(robot.DumpState());
-
-//        while (robotIsAlive)
-//        {
-//            //Score is incremented by the number of robots in function.
-//            score++;
-
-//            //Automaton2000 robots move by 1 cell in the direction they're facing.
-//            robot.Move();
-
-//            //Automaton2000 robots change their direction if they're located on an arrow.
-//            ChangeDirectionIfLocatedOnAnArrow(map, robot);
-
-//            //Automaton2000 robots stop functioning if they're located on a void cell or if they've entered a state(position, direction) they've been in before. (Automaton2000 robots don't share their state history)
-//            var robotState = robot.DumpState();
-//            var cellContent = map.GetCell(robot.x, robot.y);
-//            if (cellContent == Map.Void || visitedStates.Contains(robotState))
-//            {
-//                robotIsAlive = false;
-//            }
-//            else
-//            {
-//                visitedStates.Add(robotState);
-//            }
-
-//        }
-//    }
-    
-//    private static void ChangeDirectionIfLocatedOnAnArrow(Map map, Robot robot)
-//    {
-//        //Automaton2000 robots change their direction if they're located on an arrow.
-//        var cellContent = map.GetCell(robot.x, robot.y);
-//        switch (cellContent)
-//        {
-//            case 'U':
-//            case 'R':
-//            case 'D':
-//            case 'L':
-//                robot.direction = cellContent;
-//                break;
-//            default:
-//                //Do nothing
-//                break;
-//        }
-//    }
-//}
+    private static void ChangeDirectionIfLocatedOnAnArrow(Map map, Robot robot)
+    {
+        //Automaton2000 robots change their direction if they're located on an arrow.
+        var cellContent = map.GetCell(robot.x, robot.y);
+        switch (cellContent)
+        {
+            case 'U':
+            case 'R':
+            case 'D':
+            case 'L':
+                robot.direction = cellContent;
+                break;
+            default:
+                //Do nothing
+                break;
+        }
+    }
+}
 
 class Player
 {
@@ -542,7 +558,7 @@ class Player
             robots[i] = new Robot(x, y, direction[0]);
         }
         
-        var bestSolution = SolutionFinder.FindBestSolution(map, robots);
+        var bestSolution = SolutionFinder2.FindBestSolution(map, robots);
         
         // Write an action using Console.WriteLine()
         // To debug: Console.Error.WriteLine("Debug messages...");
