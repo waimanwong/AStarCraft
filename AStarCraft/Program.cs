@@ -280,37 +280,24 @@ static class SolutionFinder
         var solution = new Solution();
         
         
-        //Dead ends
         foreach(var platformCell in platformCells)
         {
             var neighbors = platformCell.GetNeighbors();
             var neighborCells = neighbors.Select(neighborPosition => map.GetCell(neighborPosition)).ToArray();
+            var neighborEmptyCellCount = neighborCells.Count(c => c == '#');
 
-            if (neighborCells.Count(c => c == '#') == 3)
+            if (neighborEmptyCellCount == 3)
             {
-                //Return top
-                if (map.GetCell(neighbors[0]) == Map.Empty)
-                {
-                    solution.Add(new Arrow(platformCell, Map.UpArrow));
-                }
-                //Return bottom
-                if (map.GetCell(neighbors[1]) == Map.Empty)
-                {
-                    solution.Add(new Arrow(platformCell, Map.DownArrow));
-                }
-                //Return left
-                if (map.GetCell(neighbors[2]) == Map.Empty)
-                {
-                    solution.Add(new Arrow(platformCell, Map.LeftArrow));
-                }
-                //Return right
-                if (map.GetCell(neighbors[3]) == Map.Empty)
-                {
-                    solution.Add(new Arrow(platformCell, Map.RightArrow));
-                }
+                //Dead ends
+                HandleDeadEnds(ref solution, map, neighbors, platformCell);
             }
-            
+            else if(neighborEmptyCellCount == 2)
+            {
+                //Corners
+                HandleCorner(ref solution, map, neighbors, platformCell, clockWise:true);
+            }
         }
+
         var newMap = map.Apply(solution.Arrows);
         int score = ScoreCalculator.ComputeScore(newMap, robots);
         Player.Debug($"Expected score {score.ToString()}");
@@ -318,6 +305,68 @@ static class SolutionFinder
         return solution;
     }
 
+    private static void HandleCorner(ref Solution solution, Map map, Position[] neighbors, Position platformCell, bool clockWise)
+    {
+        //top right corner
+        if ((map.GetCell(neighbors[0]) == Map.Void) && (map.GetCell(neighbors[3]) == Map.Void))
+        {
+            if(clockWise)
+                solution.Add(new Arrow(platformCell, Map.DownArrow));
+            else
+                solution.Add(new Arrow(platformCell, Map.LeftArrow));
+        }
+
+        //top left corner
+        if ((map.GetCell(neighbors[0]) == Map.Void) && (map.GetCell(neighbors[2]) == Map.Void))
+        {
+            if (clockWise)
+                solution.Add(new Arrow(platformCell, Map.RightArrow));
+            else
+                solution.Add(new Arrow(platformCell, Map.DownArrow));
+        }
+
+        //bottom left corner
+        if ((map.GetCell(neighbors[1]) == Map.Void) && (map.GetCell(neighbors[2]) == Map.Void))
+        {
+            if (clockWise)
+                solution.Add(new Arrow(platformCell, Map.UpArrow));
+            else
+                solution.Add(new Arrow(platformCell, Map.RightArrow));
+        }
+
+        //bottom right corner
+        if ((map.GetCell(neighbors[1]) == Map.Void) && (map.GetCell(neighbors[3]) == Map.Void))
+        {
+            if (clockWise)
+                solution.Add(new Arrow(platformCell, Map.LeftArrow));
+            else
+                solution.Add(new Arrow(platformCell, Map.UpArrow));
+        }
+    }
+
+    private static void HandleDeadEnds(ref Solution solution, Map map, Position[] neighbors, Position platformCell)
+    {
+        //Return top
+        if (map.GetCell(neighbors[0]) == Map.Empty)
+        {
+            solution.Add(new Arrow(platformCell, Map.UpArrow));
+        }
+        //Return bottom
+        if (map.GetCell(neighbors[1]) == Map.Empty)
+        {
+            solution.Add(new Arrow(platformCell, Map.DownArrow));
+        }
+        //Return left
+        if (map.GetCell(neighbors[2]) == Map.Empty)
+        {
+            solution.Add(new Arrow(platformCell, Map.LeftArrow));
+        }
+        //Return right
+        if (map.GetCell(neighbors[3]) == Map.Empty)
+        {
+            solution.Add(new Arrow(platformCell, Map.RightArrow));
+        }
+    }
 
 }
 
@@ -354,11 +403,13 @@ class Player
         }
         
         var bestSolution = SolutionFinder.FindBestSolution(map, robots);
-        
-       
+
+
         // Write an action using Console.WriteLine()
         // To debug: Console.Error.WriteLine("Debug messages...");
-        
-        Console.WriteLine(bestSolution.ToString());
+        var output = bestSolution.ToString();
+        Player.Debug(output);
+
+        Console.WriteLine(output);
     }
 }
