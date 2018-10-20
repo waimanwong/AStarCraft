@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 struct Position
 {
@@ -134,11 +135,13 @@ struct Arrow
 
 struct RobotState
 {
+    public int id;
     public int x;
     public int y;
     public char direction;
-    public RobotState(int x, int y, char direction)
+    public RobotState(int id, int x, int y, char direction)
     {
+        this.id = id;
         this.x =x;
         this.y = y;
         this.direction = direction;
@@ -146,18 +149,20 @@ struct RobotState
 
     public override string ToString()
     {
-        return $"({x.ToString()},{y.ToString()}) {direction.ToString()}";
+        return $"id={id.ToString()} ({x.ToString()},{y.ToString()}) {direction.ToString()}";
     }
 }
 
 class Robot
 {
+    public int id;
     public int x;
     public int y;
     public char direction;
 
-    public Robot(int x, int y, char direction)
+    public Robot(int id, int x, int y, char direction)
     {
+        this.id = id;
         this.x = x;
         this.y = y;
         this.direction = direction;
@@ -165,7 +170,7 @@ class Robot
 
     public Robot Clone()
     {
-        return new Robot(x, y, direction);
+        return new Robot(id, x, y, direction);
     }
     
     public void Move()
@@ -206,12 +211,12 @@ class Robot
     public RobotState GetNextState()
     {
         var nextPosition = GetNextPosition();
-        return new RobotState(nextPosition.x, nextPosition.y, this.direction);
+        return new RobotState(id, nextPosition.x, nextPosition.y, this.direction);
     }
 
     public RobotState DumpState()
     {
-        return new RobotState(this.x, this.y, this.direction);
+        return new RobotState(this.id, this.x, this.y, this.direction);
     }
 }
 
@@ -219,7 +224,7 @@ static class ScoreCalculator
 {
     public static int ComputeScore(Map map, Robot[] robots )
     {
-        HashSet<RobotState> visitedStates = InitializeVisitedStates(map);
+        HashSet<RobotState> visitedStates = InitializeVisitedStates(map, robots);
         int score = 0;
 
         foreach(var robot in robots)
@@ -229,17 +234,21 @@ static class ScoreCalculator
         return score;
     }
 
-    private static HashSet<RobotState> InitializeVisitedStates(Map map)
+    private static HashSet<RobotState> InitializeVisitedStates(Map map, Robot[] robots)
     {
         var voidCells = map.VoidCells;
         HashSet<RobotState> visitedStates = new HashSet<RobotState>(Map.Height * Map.Width * 4);
 
         foreach (var voidCell in voidCells)
         {
-            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.DownArrow));
-            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.UpArrow));
-            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.LeftArrow));
-            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.RightArrow));
+            foreach(var robot in robots)
+            {
+                visitedStates.Add(new RobotState(robot.id, voidCell.x, voidCell.y, Map.DownArrow));
+                visitedStates.Add(new RobotState(robot.id, voidCell.x, voidCell.y, Map.UpArrow));
+                visitedStates.Add(new RobotState(robot.id, voidCell.x, voidCell.y, Map.LeftArrow));
+                visitedStates.Add(new RobotState(robot.id, voidCell.x, voidCell.y, Map.RightArrow));
+            }
+           
         }
         return visitedStates;
     }
@@ -316,13 +325,6 @@ class Solution
         return string.Join(" ", this._arrowsToPlace.Select(arrow => arrow.ToString()).ToArray());
     }
 
-    internal void Combine(Solution otherSolution)
-    {
-        foreach(var arrow in otherSolution._arrowsToPlace)
-        {
-            _arrowsToPlace.Add(arrow);
-        }
-    }
 }
 
 static class SolutionFinder
@@ -331,18 +333,28 @@ static class SolutionFinder
     public static Solution FindBestSolution(Map map, Robot[] robots)
     {
         var platformCells = map.PlatformCells.ToArray();
+       
+        var t1 = Task.Run(() =>
+           {
+               var solutionClockWise = GetSolution(map, platformCells, clockWise: true);
+               var newMapClockWise = map.Apply(solutionClockWise.Arrows);
+               int scoreClockWise = ScoreCalculator.ComputeScore(newMapClockWise, robots);
+               Player.Debug($"Expected score clockwise {scoreClockWise.ToString()}");
 
-        var solutionClockWise = GetSolution(map, platformCells, clockWise: true);
-        var newMapClockWise = map.Apply(solutionClockWise.Arrows);
-        int scoreClockWise = ScoreCalculator.ComputeScore(newMapClockWise, robots);
-        Player.Debug($"Expected score clockwise {scoreClockWise.ToString()}");
+               return new Tuple<Solution, int>(solutionClockWise, scoreClockWise);
+           });
 
-        var solutionAntiClockWise = GetSolution(map, platformCells, clockWise: false);
-        var newMapAntiClockWise = map.Apply(solutionAntiClockWise.Arrows);
-        int scoreAntiClockWise = ScoreCalculator.ComputeScore(newMapAntiClockWise, robots);
-        Player.Debug($"Expected score anti clock wise {scoreAntiClockWise.ToString()}");
+        var t2 = Task.Run(() =>
+        {
+            var solutionClockWise = GetSolution(map, platformCells, clockWise: false);
+            var newMapClockWise = map.Apply(solutionClockWise.Arrows);
+            int scoreClockWise = ScoreCalculator.ComputeScore(newMapClockWise, robots);
+            Player.Debug($"Expected score anticlockwise {scoreClockWise.ToString()}");
 
-        return scoreAntiClockWise < scoreClockWise ? solutionClockWise : solutionAntiClockWise;
+            return new Tuple<Solution, int>(solutionClockWise, scoreClockWise);
+        });
+        
+        return t1.Result.Item2 < t2.Result.Item2 ? t2.Result.Item1 : t1.Result.Item1;
     }
 
     private static Solution GetSolution(Map map, Position[] platformCells, bool clockWise)
@@ -433,110 +445,6 @@ static class SolutionFinder
     }
 }
 
-
-static class SolutionFinder2
-{
-    public static Solution FindBestSolution(Map map, Robot[] robots)
-    {
-        HashSet<RobotState> visitedStates = InitializeVisitedStates(map);
-        var overallSolution = new Solution();
-
-        foreach (var robot in robots)
-        {
-            var bestSolutionForRobot = FindBestSolutionForRobot(map, robot, visitedStates);
-
-            overallSolution.Combine(bestSolutionForRobot);
-        }
-
-        return overallSolution;
-
-    }
-
-    private static HashSet<RobotState> InitializeVisitedStates(Map map)
-    {
-        HashSet<RobotState> visitedStates = new HashSet<RobotState>(Map.Height * Map.Width * 4);
-
-        var voidCells = map.VoidCells;
-        foreach (var voidCell in voidCells)
-        {
-            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.DownArrow));
-            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.UpArrow));
-            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.LeftArrow));
-            visitedStates.Add(new RobotState(voidCell.x, voidCell.y, Map.RightArrow));
-        }
-
-        return visitedStates;
-    }
-
-
-    public static Solution FindBestSolutionForRobot(Map map, Robot robot, HashSet<RobotState> initialisedVisitedStates)
-    {
-        var clockWiseDirections = "URDL"; //clock wise
-        
-        Solution solution = new Solution();
-
-        HashSet<RobotState> visitedStates = initialisedVisitedStates.ToHashSet();
-
-        bool isAlive = true;
-
-        while (isAlive)
-        {
-            var nextRobotState = robot.GetNextState();
-            
-            if (visitedStates.Contains(nextRobotState))
-            {
-                isAlive = false;
-
-                //Is there other alternatives
-                foreach (var tryDirection in clockWiseDirections)
-                {
-                    if (robot.direction != tryDirection)
-                    {
-                        robot.direction = tryDirection;
-                        var tryNextState = robot.GetNextState();
-
-                        if(visitedStates.Contains(tryNextState) == false)
-                        {
-                            solution.Add(new Arrow(robot.x, robot.y, tryDirection));
-
-                            robot.Move();
-                            visitedStates.Add(robot.DumpState());
-
-                            isAlive = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                robot.Move();
-                visitedStates.Add(robot.DumpState());
-            }
-           
-        }
-        return solution;
-    }
-
-    private static void ChangeDirectionIfLocatedOnAnArrow(Map map, Robot robot)
-    {
-        //Automaton2000 robots change their direction if they're located on an arrow.
-        var cellContent = map.GetCell(robot.x, robot.y);
-        switch (cellContent)
-        {
-            case 'U':
-            case 'R':
-            case 'D':
-            case 'L':
-                robot.direction = cellContent;
-                break;
-            default:
-                //Do nothing
-                break;
-        }
-    }
-}
-
 class Player
 {
     public static void Debug(string message)
@@ -566,10 +474,10 @@ class Player
             int y = int.Parse(inputs[1]);
             string direction = inputs[2];
 
-            robots[i] = new Robot(x, y, direction[0]);
+            robots[i] = new Robot(i, x, y, direction[0]);
         }
         
-        var bestSolution = SolutionFinder2.FindBestSolution(map, robots);
+        var bestSolution = SolutionFinder.FindBestSolution(map, robots);
         
         // Write an action using Console.WriteLine()
         // To debug: Console.Error.WriteLine("Debug messages...");
