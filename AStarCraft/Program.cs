@@ -31,10 +31,15 @@ struct Position
         neighbors[2] = new Position(xLeft, this.y);
 
         //Right
-        int xRight = this.x == Map.Width ? 0 : this.x + 1;
+        int xRight = this.x == Map.Width - 1 ? 0 : this.x + 1;
         neighbors[3] = new Position(xRight, this.y);
 
         return neighbors;
+    }
+
+    public override string ToString()
+    {
+        return $"({x.ToString()},{y.ToString()})";
     }
 }
 
@@ -281,10 +286,10 @@ static class SolutionFinder
             var neighbors = platformCell.GetNeighbors();
             var neighborCells = neighbors.Select(neighborPosition => map.GetCell(neighborPosition)).ToArray();
 
-            if(neighborCells.Count(c => c == '#') == 3)
+            if (neighborCells.Count(c => c == '#') == 3)
             {
                 //Return top
-                if(map.GetCell(neighbors[0]) == Map.Empty)
+                if (map.GetCell(neighbors[0]) == Map.Empty)
                 {
                     solution.Add(new Arrow(platformCell, Map.UpArrow));
                 }
@@ -304,6 +309,7 @@ static class SolutionFinder
                     solution.Add(new Arrow(platformCell, Map.RightArrow));
                 }
             }
+            
         }
         var newMap = map.Apply(solution.Arrows);
         int score = ScoreCalculator.ComputeScore(newMap, robots);
