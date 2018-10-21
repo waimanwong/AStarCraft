@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
-using System.Threading.Tasks;
 
 struct Position
 {
@@ -12,7 +12,7 @@ struct Position
         this.x = x;
         this.y = y;
     }
-    
+
     //Return top, bottom, left, right
     public Position[] GetNeighbors()
     {
@@ -55,58 +55,56 @@ class Map
     public const char RightArrow = 'R';
     public const char DownArrow = 'D';
     public const char LeftArrow = 'L';
-    
+
     public Map(string[] rows)
     {
         this.cells = rows.Select(row => row.ToCharArray()).ToArray();
-        this.ComputeInternalState();
     }
-    
+
     public char GetCell(Position pos)
     {
         return GetCell(pos.x, pos.y);
     }
-    
+
     public char GetCell(int x, int y)
     {
         return cells[y][x];
     }
 
-    public List<Position> VoidCells = new List<Position>(Map.Width * Map.Height);
-    public List<Position> PlatformCells = new List<Position>(Map.Width * Map.Height);
+    static List<Position> _platformCells = new List<Position>(19 * 10);
 
-    private void ComputeInternalState()
+    public Position[] GetPlatformCells()
     {
+        _platformCells.Clear();
+
         for (int y = 0; y < Map.Height; y++)
         {
             for (int x = 0; x < Map.Width; x++)
             {
                 if (cells[y][x] == '.')
                 {
-                    PlatformCells.Add(new Position(x, y));
-                }
-                if (cells[y][x] == Map.Void)
-                {
-                    VoidCells.Add(new Position(x, y));
+                    _platformCells.Add(new Position(x, y));
                 }
             }
         }
+        return _platformCells.ToArray();
     }
-    
+
+
     public Map Apply(IEnumerable<Arrow> arrows)
     {
         var newMap = (Map)this.MemberwiseClone();
-        foreach(var arrow in arrows)
+        foreach (var arrow in arrows)
         {
             this.cells[arrow.y][arrow.x] = arrow.direction;
         }
-        return newMap;    
+        return newMap;
     }
 
     public void Debug()
     {
         var rows = cells.Select(charArray => new string(charArray)).ToArray();
-        foreach(var row in rows)
+        foreach (var row in rows)
         {
             Player.Debug(row);
         }
@@ -117,16 +115,12 @@ struct Arrow
 {
     public int x, y;
     public char direction;
-    public Arrow(int x, int y, char direction)
+    public Arrow(Position p, char direction)
     {
-        this.x = x;
-        this.y = y;
+        this.x = p.x;
+        this.y = p.y;
         this.direction = direction;
     }
-    public Arrow(Position p, char direction) : this(p.x, p.y, direction)
-    {  
-    }
-
     public override string ToString()
     {
         return $"{x.ToString()} {y.ToString()} {direction}";
@@ -135,34 +129,25 @@ struct Arrow
 
 struct RobotState
 {
-    public int id;
     public int x;
     public int y;
     public char direction;
-    public RobotState(int id, int x, int y, char direction)
+    public RobotState(int x, int y, char direction)
     {
-        this.id = id;
-        this.x =x;
+        this.x = x;
         this.y = y;
         this.direction = direction;
-    }
-
-    public override string ToString()
-    {
-        return $"id={id.ToString()} ({x.ToString()},{y.ToString()}) {direction.ToString()}";
     }
 }
 
 class Robot
 {
-    public int id;
     public int x;
     public int y;
     public char direction;
 
-    public Robot(int id, int x, int y, char direction)
+    public Robot(int x, int y, char direction)
     {
-        this.id = id;
         this.x = x;
         this.y = y;
         this.direction = direction;
@@ -170,9 +155,10 @@ class Robot
 
     public Robot Clone()
     {
-        return new Robot(id, x, y, direction);
+        return new Robot(x, y, direction);
     }
-    
+
+
     public void Move()
     {
         switch (direction)
@@ -192,75 +178,33 @@ class Robot
         }
     }
 
-    private Position GetNextPosition()
-    {
-        switch (direction)
-        {
-            case 'U':
-                return new Position(x, y == 0 ? Map.Height - 1 : y - 1);
-            case 'R':
-                return new Position(x == Map.Width - 1 ? 0 : x + 1, y);
-            case 'D':
-                return new Position(x, y == Map.Height - 1 ? y = 0 : y + 1);
-            case 'L':
-                return new Position(x == 0 ? Map.Width - 1 : x - 1, y);
-        }
-        throw new NotSupportedException();
-    }
-
-    public RobotState GetNextState()
-    {
-        var nextPosition = GetNextPosition();
-        return new RobotState(id, nextPosition.x, nextPosition.y, this.direction);
-    }
-
     public RobotState DumpState()
     {
-        return new RobotState(this.id, this.x, this.y, this.direction);
+        return new RobotState(this.x, this.y, this.direction);
     }
 }
 
 static class ScoreCalculator
 {
-    public static int ComputeScore(Map map, Robot[] robots )
+    public static int ComputeScore(Map map, Robot[] robots)
     {
-        HashSet<RobotState> visitedStates = InitializeVisitedStates(map, robots);
         int score = 0;
 
-        foreach(var robot in robots)
+        foreach (var robot in robots)
         {
-            score += ComputeScore(map, robot, visitedStates);
+            score += ComputeScore(map, robot);
         }
         return score;
     }
 
-    private static HashSet<RobotState> InitializeVisitedStates(Map map, Robot[] robots)
-    {
-        var voidCells = map.VoidCells;
-        HashSet<RobotState> visitedStates = new HashSet<RobotState>(Map.Height * Map.Width * 4);
-
-        foreach (var voidCell in voidCells)
-        {
-            foreach(var robot in robots)
-            {
-                visitedStates.Add(new RobotState(robot.id, voidCell.x, voidCell.y, Map.DownArrow));
-                visitedStates.Add(new RobotState(robot.id, voidCell.x, voidCell.y, Map.UpArrow));
-                visitedStates.Add(new RobotState(robot.id, voidCell.x, voidCell.y, Map.LeftArrow));
-                visitedStates.Add(new RobotState(robot.id, voidCell.x, voidCell.y, Map.RightArrow));
-            }
-           
-        }
-        return visitedStates;
-    }
-
-    private static int ComputeScore(Map map, Robot robot, HashSet<RobotState> initializedVisitedStates)
+    private static int ComputeScore(Map map, Robot robot)
     {
         ChangeDirectionIfLocatedOnAnArrow(map, robot);
 
         bool robotIsAlive = true;
         int score = 0;
-        HashSet<RobotState> visitedStates = initializedVisitedStates.ToHashSet();
-        
+        HashSet<RobotState> visitedStates = new HashSet<RobotState>(1000);
+
         visitedStates.Add(robot.DumpState());
 
         while (robotIsAlive)
@@ -276,7 +220,8 @@ static class ScoreCalculator
 
             //Automaton2000 robots stop functioning if they're located on a void cell or if they've entered a state(position, direction) they've been in before. (Automaton2000 robots don't share their state history)
             var robotState = robot.DumpState();
-            if (visitedStates.Contains(robotState))
+            var cellContent = map.GetCell(robot.x, robot.y);
+            if (cellContent == Map.Void || visitedStates.Contains(robotState))
             {
                 robotIsAlive = false;
             }
@@ -311,10 +256,10 @@ static class ScoreCalculator
 
 class Solution
 {
-    private HashSet<Arrow> _arrowsToPlace = new HashSet<Arrow>();
+    private List<Arrow> _arrowsToPlace = new List<Arrow>();
 
     public Arrow[] Arrows => _arrowsToPlace.ToArray();
-    
+
     public void Add(Arrow arrow)
     {
         this._arrowsToPlace.Add(arrow);
@@ -324,37 +269,26 @@ class Solution
     {
         return string.Join(" ", this._arrowsToPlace.Select(arrow => arrow.ToString()).ToArray());
     }
-
 }
 
 static class SolutionFinder
 {
-    
+
     public static Solution FindBestSolution(Map map, Robot[] robots)
     {
-        var platformCells = map.PlatformCells.ToArray();
-       
-        var t1 = Task.Run(() =>
-           {
-               var solutionClockWise = GetSolution(map, platformCells, clockWise: true);
-               var newMapClockWise = map.Apply(solutionClockWise.Arrows);
-               int scoreClockWise = ScoreCalculator.ComputeScore(newMapClockWise, robots);
-               Player.Debug($"Expected score clockwise {scoreClockWise.ToString()}");
+        var platformCells = map.GetPlatformCells();
 
-               return new Tuple<Solution, int>(solutionClockWise, scoreClockWise);
-           });
+        var solutionClockWise = GetSolution(map, platformCells, clockWise: true);
+        var newMapClockWise = map.Apply(solutionClockWise.Arrows);
+        int scoreClockWise = ScoreCalculator.ComputeScore(newMapClockWise, robots);
+        Player.Debug($"Expected score clockwise {scoreClockWise.ToString()}");
 
-        var t2 = Task.Run(() =>
-        {
-            var solutionClockWise = GetSolution(map, platformCells, clockWise: false);
-            var newMapClockWise = map.Apply(solutionClockWise.Arrows);
-            int scoreClockWise = ScoreCalculator.ComputeScore(newMapClockWise, robots);
-            Player.Debug($"Expected score anticlockwise {scoreClockWise.ToString()}");
+        var solutionAntiClockWise = GetSolution(map, platformCells, clockWise: false);
+        var newMapAntiClockWise = map.Apply(solutionAntiClockWise.Arrows);
+        int scoreAntiClockWise = ScoreCalculator.ComputeScore(newMapAntiClockWise, robots);
+        Player.Debug($"Expected score anti clock wise {scoreAntiClockWise.ToString()}");
 
-            return new Tuple<Solution, int>(solutionClockWise, scoreClockWise);
-        });
-        
-        return t1.Result.Item2 < t2.Result.Item2 ? t2.Result.Item1 : t1.Result.Item1;
+        return scoreAntiClockWise < scoreClockWise ? solutionClockWise : solutionAntiClockWise;
     }
 
     private static Solution GetSolution(Map map, Position[] platformCells, bool clockWise)
@@ -386,7 +320,7 @@ static class SolutionFinder
         //top right corner
         if ((map.GetCell(neighbors[0]) == Map.Void) && (map.GetCell(neighbors[3]) == Map.Void))
         {
-            if(clockWise)
+            if (clockWise)
                 solution.Add(new Arrow(platformCell, Map.DownArrow));
             else
                 solution.Add(new Arrow(platformCell, Map.LeftArrow));
@@ -445,6 +379,20 @@ static class SolutionFinder
     }
 }
 
+
+//static class SolutionFinder2
+//{
+//    public static Solution FindBestSolution(Map map, Robot[] robots)
+//    {
+
+//        var newMap = map.Apply(solution.Arrows);
+//        int score = ScoreCalculator.ComputeScore(newMap, robots);
+//        Player.Debug($"Expected score {score.ToString()}");
+
+//        return solution;
+//    }
+//}
+
 class Player
 {
     public static void Debug(string message)
@@ -454,7 +402,7 @@ class Player
 
     static void Main(string[] args)
     {
-       
+
         string[] lines = new string[10];
 
         for (int i = 0; i < 10; i++)
@@ -463,7 +411,7 @@ class Player
             lines[i] = line;
         }
         Map map = new Map(lines);
-        
+
         int robotCount = int.Parse(Console.ReadLine());
         Robot[] robots = new Robot[robotCount];
 
@@ -474,11 +422,12 @@ class Player
             int y = int.Parse(inputs[1]);
             string direction = inputs[2];
 
-            robots[i] = new Robot(i, x, y, direction[0]);
+            robots[i] = new Robot(x, y, direction[0]);
         }
-        
+
         var bestSolution = SolutionFinder.FindBestSolution(map, robots);
-        
+
+
         // Write an action using Console.WriteLine()
         // To debug: Console.Error.WriteLine("Debug messages...");
         var output = bestSolution.ToString();
