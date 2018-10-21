@@ -2,6 +2,33 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Security.Cryptography;
+
+public static class RandomNumber
+{
+    private static readonly RNGCryptoServiceProvider _generator = new RNGCryptoServiceProvider();
+
+    public static int Between(int minimumValue, int maximumValue)
+    {
+        byte[] randomNumber = new byte[1];
+
+        _generator.GetBytes(randomNumber);
+
+        double asciiValueOfRandomCharacter = Convert.ToDouble(randomNumber[0]);
+
+        // We are using Math.Max, and substracting 0.00000000001, 
+        // to ensure "multiplier" will always be between 0.0 and .99999999999
+        // Otherwise, it's possible for it to be "1", which causes problems in our rounding.
+        double multiplier = Math.Max(0, (asciiValueOfRandomCharacter / 255d) - 0.00000000001d);
+
+        // We need to add one to the range, to allow for the rounding done with Math.Floor
+        int range = maximumValue - minimumValue + 1;
+
+        double randomValueInRange = Math.Floor(multiplier * range);
+
+        return (int)(minimumValue + randomValueInRange);
+    }
+}
 
 struct Position
 {
@@ -45,6 +72,8 @@ struct Position
 
 class Map
 {
+    private string[] _rows;
+
     private readonly char[][] cells;
     public const int Height = 10;
     public const int Width = 19;
@@ -56,9 +85,11 @@ class Map
     public const char DownArrow = 'D';
     public const char LeftArrow = 'L';
 
-    public Map(string[] rows)
+    public Map(params string[] rows)
     {
+        this._rows = rows;
         this.cells = rows.Select(row => row.ToCharArray()).ToArray();
+        InitializeState();
     }
 
     public char GetCell(Position pos)
@@ -71,32 +102,37 @@ class Map
         return cells[y][x];
     }
 
-    static List<Position> _platformCells = new List<Position>(19 * 10);
+    public List<Position> EmptyCells = new List<Position>(19 * 10);
+    public Dictionary<Position, int> EmptyNeighbors = new Dictionary<Position, int>();
 
-    public Position[] GetPlatformCells()
+    private void InitializeState()
     {
-        _platformCells.Clear();
-
+        
         for (int y = 0; y < Map.Height; y++)
         {
             for (int x = 0; x < Map.Width; x++)
             {
-                if (cells[y][x] == '.')
+                if (cells[y][x] == Empty)
                 {
-                    _platformCells.Add(new Position(x, y));
+                    var currentPosition = new Position(x, y);
+                    EmptyCells.Add(currentPosition);
+
+                    var neighbors = currentPosition.GetNeighbors();
+                    var neighborCells = neighbors.Select(neighborPosition => this.GetCell(neighborPosition)).ToArray();
+                    var neighborEmptyCellCount = neighborCells.Count(c => c == Empty);
+
+                    EmptyNeighbors[currentPosition] = neighborEmptyCellCount;
                 }
             }
         }
-        return _platformCells.ToArray();
     }
-
-
+    
     public Map Apply(IEnumerable<Arrow> arrows)
     {
-        var newMap = (Map)this.MemberwiseClone();
+        var newMap = new Map(this._rows);
         foreach (var arrow in arrows)
         {
-            this.cells[arrow.y][arrow.x] = arrow.direction;
+            newMap.cells[arrow.y][arrow.x] = arrow.direction;
         }
         return newMap;
     }
@@ -174,7 +210,7 @@ static class ScoreCalculator
     {
         int score = 0;
 
-        foreach (var robot in robots)
+        foreach (var robot in robots.Select(r => r.Clone()).ToArray())
         {
             score += ComputeScore(map, robot);
         }
@@ -183,7 +219,7 @@ static class ScoreCalculator
 
     private static int ComputeScore(Map map, Robot robot)
     {
-        ChangeDirectionIfLocatedOnAnArrow(map, robot);
+        ChangeDirectionIfLocatedOnAnArrow(map, ref robot);
 
         bool robotIsAlive = true;
         int score = 0;
@@ -200,7 +236,7 @@ static class ScoreCalculator
             robot.Move();
 
             //Automaton2000 robots change their direction if they're located on an arrow.
-            ChangeDirectionIfLocatedOnAnArrow(map, robot);
+            ChangeDirectionIfLocatedOnAnArrow(map, ref robot);
 
             //Automaton2000 robots stop functioning if they're located on a void cell or if they've entered a state(position, direction) they've been in before. (Automaton2000 robots don't share their state history)
             var robotState = robot.Clone();
@@ -218,7 +254,7 @@ static class ScoreCalculator
         return score;
     }
 
-    private static void ChangeDirectionIfLocatedOnAnArrow(Map map, Robot robot)
+    private static void ChangeDirectionIfLocatedOnAnArrow(Map map, ref Robot robot)
     {
         //Automaton2000 robots change their direction if they're located on an arrow.
         var cellContent = map.GetCell(robot.x, robot.y);
@@ -258,7 +294,7 @@ static class SolutionFinder
 {
     public static Solution FindBestSolution(Map map, Robot[] robots)
     {
-        var platformCells = map.GetPlatformCells();
+        var platformCells = map.EmptyCells.ToArray();
 
         var solutionClockWise = GetSolution(map, platformCells, robots, clockWise: true);
         var newMapClockWise = map.Apply(solutionClockWise.Arrows);
@@ -361,6 +397,214 @@ static class SolutionFinder
     }
 }
 
+class RandomSolutionFinder
+{
+    public static Solution GenerateRandomSolution(Map map, List<Position> positions)
+    {
+        Solution s = new Solution();
+        
+        foreach (var position in positions)
+        {
+            var neighborEmptyCellCount = map.EmptyNeighbors[position];
+            var neighbors = position.GetNeighbors();
+            
+            if (neighborEmptyCellCount == 1)
+            {
+                int rand = RandomNumber.Between(0, 10);
+                if (rand < 9)
+                {
+                    //Dead ends
+                    HandleDeadEnds(ref s, map, neighbors, position);
+                }
+            }
+            else if (neighborEmptyCellCount == 2)
+            {
+                int rand = RandomNumber.Between(0, 10);
+                bool clockWise = rand <= 5;
+
+                //Corners
+                HandleCorner(ref s, map, neighbors, position, clockWise);
+            }
+            else if(neighborEmptyCellCount == 3)
+            {
+                int p = RandomNumber.Between(0, 10);
+                
+                if (p <= 2)
+                {
+                    //Do nothing
+                }
+                else if (p <= 4)
+                {
+                    //bottom
+                    int yBottom = position.y == Map.Height - 1 ? 0 : position.y + 1;
+                   
+                    if (map.GetCell(position.x, yBottom) != Map.Void)
+                    {
+                        s.Add(new Arrow(position, Map.DownArrow));
+                    }
+                }
+                else if (p <= 6)
+                {
+                    //Right
+                    int xRight = position.x == Map.Width - 1 ? 0 : position.x + 1;
+                    
+                    if (map.GetCell(xRight, position.y ) != Map.Void)
+                    {
+                        s.Add(new Arrow(position, Map.RightArrow));
+                    }
+                }
+                else if (p <= 8)
+                {
+                    //top
+                    int yTop = position.y == 0 ? Map.Height - 1 : position.y - 1;
+                    
+                    if (map.GetCell(position.x, yTop) != Map.Void)
+                    {
+                        s.Add(new Arrow(position, Map.UpArrow));
+                    }
+                }
+                else
+                {
+                    //Left
+                    int xLeft = position.x == 0 ? Map.Width - 1 : position.x - 1;
+                    if (map.GetCell(xLeft, position.y) != Map.Void)
+                    {
+                        s.Add(new Arrow(position, Map.LeftArrow));
+                    }
+                }
+            }
+            else
+            {
+                //Do nothing
+            }
+        }
+        return s;
+    }
+
+    private static void HandleCorner(ref Solution solution, Map map, Position[] neighbors, Position platformCell, bool clockWise)
+    {
+        //neigbors top bottom left right
+
+        //top right corner
+        if ((map.GetCell(neighbors[0]) == Map.Void) && (map.GetCell(neighbors[3]) == Map.Void))
+        {
+            if (clockWise)
+                solution.Add(new Arrow(platformCell, Map.DownArrow));
+            else
+                solution.Add(new Arrow(platformCell, Map.LeftArrow));
+        }
+
+        //top left corner
+        if ((map.GetCell(neighbors[0]) == Map.Void) && (map.GetCell(neighbors[2]) == Map.Void))
+        {
+            if (clockWise)
+                solution.Add(new Arrow(platformCell, Map.RightArrow));
+            else
+                solution.Add(new Arrow(platformCell, Map.DownArrow));
+        }
+
+        //bottom left corner
+        if ((map.GetCell(neighbors[1]) == Map.Void) && (map.GetCell(neighbors[2]) == Map.Void))
+        {
+            if (clockWise)
+                solution.Add(new Arrow(platformCell, Map.UpArrow));
+            else
+                solution.Add(new Arrow(platformCell, Map.RightArrow));
+        }
+
+        //bottom right corner
+        if ((map.GetCell(neighbors[1]) == Map.Void) && (map.GetCell(neighbors[3]) == Map.Void))
+        {
+            if (clockWise)
+                solution.Add(new Arrow(platformCell, Map.LeftArrow));
+            else
+                solution.Add(new Arrow(platformCell, Map.UpArrow));
+        }
+    }
+
+    private static void HandleDeadEnds(ref Solution solution, Map map, Position[] neighbors, Position platformCell)
+    {
+
+        //Return top
+        if (map.GetCell(neighbors[0]) == Map.Empty)
+        {
+            solution.Add(new Arrow(platformCell, Map.UpArrow));
+        }
+        //Return bottom
+        if (map.GetCell(neighbors[1]) == Map.Empty)
+        {
+            solution.Add(new Arrow(platformCell, Map.DownArrow));
+        }
+        //Return left
+        if (map.GetCell(neighbors[2]) == Map.Empty)
+        {
+            solution.Add(new Arrow(platformCell, Map.LeftArrow));
+        }
+        //Return right
+        if (map.GetCell(neighbors[3]) == Map.Empty)
+        {
+            solution.Add(new Arrow(platformCell, Map.RightArrow));
+        }
+    }
+
+    public static Tuple<Solution, int> FindSolution(Map map, Robot[] robots)
+    {
+        var platformCells = map.EmptyCells;
+
+        Solution bestSolution = null;
+        int bestScore = -1;
+        Stopwatch watch = Stopwatch.StartNew();
+
+        int simulationCount = 0;
+
+        while (watch.ElapsedMilliseconds < 970)
+        {
+            var solution = RandomSolutionFinder.GenerateRandomSolution(map, platformCells);
+            
+            //Evaluate
+            var newMap = map.Apply(solution.Arrows);
+            int score = ScoreCalculator.ComputeScore(newMap, robots);
+            
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestSolution = solution;
+            }
+
+            simulationCount++;
+        }
+
+        Player.Debug($"Nb Simulation {simulationCount.ToString()} in {watch.ElapsedMilliseconds.ToString()}ms");
+        Player.Debug($"Best score achieved: {bestScore.ToString()}");
+
+        return new Tuple<Solution, int>(bestSolution, bestScore);
+    }
+}
+
+static class Test
+{
+    public static void Run()
+    {
+        var map = new Map(
+            "###################",
+            "###################",
+            "###################",
+            "###################",
+            "###............####",
+            "###################",
+            "###################",
+            "###################",
+            "###################",
+            "###################");
+        var robots = new Robot[]
+        {
+            new Robot(0,3,4,'R')
+        };
+
+        var bestSolution = RandomSolutionFinder.FindSolution(map, robots);
+    }
+}
+
 class Player
 {
     public static void Debug(string message)
@@ -370,6 +614,7 @@ class Player
 
     static void Main(string[] args)
     {
+        //Test.Run();
 
         string[] lines = new string[10];
 
@@ -393,12 +638,13 @@ class Player
             robots[i] = new Robot(i, x, y, direction[0]);
         }
 
-        int score = ScoreCalculator.ComputeScore(map, robots);
-        Player.Debug($"Expected score {score.ToString()}");
-        
+        var bestSolution = RandomSolutionFinder.FindSolution(map, robots);
+
         // Write an action using Console.WriteLine()
         // To debug: Console.Error.WriteLine("Debug messages...");
-        
-        Console.WriteLine("");
+        var output = bestSolution.Item1.ToString();
+        Player.Debug(output);
+
+        Console.WriteLine(output);
     }
 }
