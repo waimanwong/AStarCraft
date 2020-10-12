@@ -1,0 +1,3 @@
+# AStarCraft
+
+Codingame contest
